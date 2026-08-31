@@ -1,0 +1,103 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+          # macOS Intel
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin'
+          # Windows x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装前端依赖(Tauri CLI)
+        run: npm install
+
+      # ===== 按平台下载 ffmpeg / ffprobe,放入 Tauri resources 目录(不入 git 仓库)=====
+
+      - name: 下载 ffmpeg/ffprobe(macOS Apple Silicon)
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          mkdir -p src-tauri/resources
+          curl -fsSL -o ffmpeg.zip https://www.osxexperts.net/ffmpeg9arm.zip
+          curl -fsSL -o ffprobe.zip https://www.osxexperts.net/ffprobe9arm.zip
+          unzip -j -o ffmpeg.zip -d src-tauri/resources
+          unzip -j -o ffprobe.zip -d src-tauri/resources
+          rm -f ffmpeg.zip ffprobe.zip
+          # ad-hoc 签名,避免二进制被 macOS 拒绝执行
+          xattr -dr com.apple.quarantine src-tauri/resources/ffmpeg src-tauri/resources/ffprobe || true
+          codesign -s - src-tauri/resources/ffmpeg src-tauri/resources/ffprobe
+          ls -la src-tauri/resources
+
+      - name: 下载 ffmpeg/ffprobe(macOS Intel)
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          mkdir -p src-tauri/resources
+          curl -fsSL -o ffmpeg.zip https://www.osxexperts.net/ffmpeg80intel.zip
+          curl -fsSL -o ffprobe.zip https://www.osxexperts.net/ffprobe80intel.zip
+          unzip -j -o ffmpeg.zip -d src-tauri/resources
+          unzip -j -o ffprobe.zip -d src-tauri/resources
+          rm -f ffmpeg.zip ffprobe.zip
+          xattr -dr com.apple.quarantine src-tauri/resources/ffmpeg src-tauri/resources/ffprobe || true
+          codesign -s - src-tauri/resources/ffmpeg src-tauri/resources/ffprobe
+          ls -la src-tauri/resources
+
+      - name: 下载 ffmpeg/ffprobe(Windows x64)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-tmp -Force
+          Copy-Item ffmpeg-tmp/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe src-tauri/resources/
+          Copy-Item ffmpeg-tmp/ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe src-tauri/resources/
+          Remove-Item ffmpeg.zip, ffmpeg-tmp -Recurse -Force
+          Get-ChildItem src-tauri/resources
+
+      # ===== 构建 + 发布 Release(macOS 出 .dmg,Windows 出 NSIS 安装器)=====
+
+      - name: 构建并发布 Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tauriScript: npm run tauri
+          tagName: v__VERSION__
+          releaseName: '媒体工具 v__VERSION__'
+          releaseBody: '媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

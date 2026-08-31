@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>媒体工具</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 顶部:应用名 + 打开文件按钮 -->
+  <header class="app-header">
+    <div class="app-title">
+      <span class="logo" aria-hidden="true"></span>
+      <h1>媒体工具</h1>
+    </div>
+    <button id="btn-open" type="button" title="打开一个或多个媒体文件">打开文件</button>
+  </header>
+
+  <!-- 标签栏:每个打开的文件一个标签,可单独关闭 -->
+  <nav id="tabs" class="tabs" hidden></nav>
+
+  <!-- 主内容区:无文件时的空状态提示 / 各文件的标签页 -->
+  <main id="content" class="content">
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon" aria-hidden="true">⤵</div>
+      <h2>把媒体文件拖进窗口,或点击右上角「打开文件」</h2>
+      <p>支持视频 / 音频文件;可多选,也可一次拖入多个文件,每个文件独立一个标签页</p>
+      <p class="muted">本工具不播放视频、完全离线;裁剪采用流复制(不重编码),通常几秒完成</p>
+    </div>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>

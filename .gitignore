@@ -1,0 +1,18 @@
+# Node
+node_modules/
+
+# Rust / Tauri 构建产物
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# 内置 ffmpeg / ffprobe 二进制不入库(体积大,由 CI 构建时按平台下载)
+src-tauri/resources/
+
+# 图标源图与移动端图标(桌面应用用不到)
+app-icon.png
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
+# 系统与日志杂项
+.DS_Store
+*.log
