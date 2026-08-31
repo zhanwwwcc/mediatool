@@ -1,6 +1,6 @@
 {
   "name": "mediatool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "媒体工具:媒体信息查看 + 快速裁剪(Tauri 2)",
   "scripts": {
