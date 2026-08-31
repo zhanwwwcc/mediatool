@@ -16,3 +16,6 @@ src-tauri/icons/ios/
 # 系统与日志杂项
 .DS_Store
 *.log
+
+# 本地记忆与笔记(不提交)
+.workbuddy/

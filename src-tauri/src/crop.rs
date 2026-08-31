@@ -17,14 +17,14 @@ pub struct CropResult {
 /// 裁剪命令(异步,在阻塞线程池中执行)
 /// - `input`:源文件绝对路径
 /// - `start`:起始秒数,None 表示从文件开头开始
-/// - `end`:终止秒数(必填,由前端保证非空)
+/// - `end`:终止秒数,None 表示裁剪到文件结尾
 /// - `output_name`:用户填写的输出文件名(不含扩展名)
 #[tauri::command]
 pub async fn crop_media(
     app: tauri::AppHandle,
     input: String,
     start: Option<f64>,
-    end: f64,
+    end: Option<f64>,
     output_name: String,
 ) -> Result<CropResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -38,20 +38,24 @@ fn crop_blocking(
     app: &tauri::AppHandle,
     input: &str,
     start: Option<f64>,
-    end: f64,
+    end: Option<f64>,
     output_name: &str,
 ) -> Result<CropResult, String> {
     /* ---------- 1. 参数校验 ---------- */
     let name = validate_output_name(output_name)?;
-    if end.is_finite() == false || end <= 0.0 {
-        return Err("终止时间必须大于 0 秒".to_string());
+    if let Some(e) = end {
+        if !e.is_finite() || e <= 0.0 {
+            return Err("终止时间必须大于 0 秒".to_string());
+        }
+        if let Some(s) = start {
+            if s >= e {
+                return Err("起始时间必须早于终止时间".to_string());
+            }
+        }
     }
     if let Some(s) = start {
         if s < 0.0 {
             return Err("起始时间不能为负数".to_string());
-        }
-        if s >= end {
-            return Err("起始时间必须早于终止时间".to_string());
         }
     }
 
@@ -87,7 +91,10 @@ fn crop_blocking(
     if let Some(s) = start {
         cmd.arg("-ss").arg(fmt_secs(s));
     }
-    cmd.arg("-to").arg(fmt_secs(end));
+    // 终止时间留空时省略 -to,表示裁剪到文件结尾
+    if let Some(e) = end {
+        cmd.arg("-to").arg(fmt_secs(e));
+    }
     cmd.arg("-i").arg(input);
     // -c copy 流复制;-n 表示绝不覆盖已存在的文件(与上面去重逻辑双保险)
     cmd.args(["-c", "copy", "-n"]).arg(&out_path);

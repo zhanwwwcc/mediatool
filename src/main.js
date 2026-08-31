@@ -114,7 +114,7 @@ async function openFile(path) {
       <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
       <div class="crop-area">
         <h2>快速裁剪(流复制,不重编码)</h2>
-        <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始留空表示从开头开始</div>
+        <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始、终止均可留空(默认从开头裁剪到文件结尾)</div>
         <div class="form-row">
           <label for="start-${tab.id}">起始时间</label>
           <input type="text" id="start-${tab.id}" class="crop-start" placeholder="00:00:00(可留空)">
@@ -122,7 +122,7 @@ async function openFile(path) {
         </div>
         <div class="form-row">
           <label for="end-${tab.id}">终止时间</label>
-          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="必填,如 1:23:45 或 90">
+          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="留空 = 到文件结尾">
         </div>
         <div class="form-row">
           <label for="name-${tab.id}">输出文件名</label>
@@ -216,15 +216,11 @@ async function runCrop(tab) {
     setStatus(tab, 'error', '起始时间格式不对:支持 时:分:秒(1:23:45)、分:秒(5:30)或纯秒数(90)');
     return;
   }
-  if (end === null || isNaN(end)) {
-    setStatus(tab, 'error', '请填写终止时间,格式如 1:23:45、5:30 或 90');
+  if (end !== null && (isNaN(end) || end <= 0)) {
+    setStatus(tab, 'error', '终止时间需大于 0(留空表示裁剪到文件结尾)');
     return;
   }
-  if (end <= 0) {
-    setStatus(tab, 'error', '终止时间必须大于 0');
-    return;
-  }
-  if (start !== null && start >= end) {
+  if (start !== null && end !== null && start >= end) {
     setStatus(tab, 'error', '起始时间必须早于终止时间');
     return;
   }
