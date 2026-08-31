@@ -33,7 +33,7 @@
 
 ## 下载安装
 
-到 [Releases](https://github.com/zhanwwcc/mediatool/releases) 下载:
+到 [Releases](https://github.com/zhanwwwcc/mediatool/releases) 下载:
 
 | 平台 | 产物 |
 | --- | --- |
