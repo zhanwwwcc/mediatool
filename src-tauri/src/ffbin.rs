@@ -16,8 +16,12 @@ pub fn resource_binary(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     };
     let rel = format!("resources/{}", file);
 
-    // 生产环境:安装包资源目录
-    let resolved = app.path().resolve_resource(&rel);
+    // 生产环境:安装包资源目录(Windows 为 exe 旁,macOS 为 .app 内 Resources)
+    let resolved = app
+        .path()
+        .resource_dir()
+        .map(|d| d.join(&rel))
+        .unwrap_or_else(|_| PathBuf::from(&rel));
     if resolved.exists() {
         return Ok(resolved);
     }
