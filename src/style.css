@@ -2,6 +2,20 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 修复:[hidden] 的 UA 样式会被本文件的类选择器覆盖,显式恢复 */
+[hidden] { display: none !important; }
+
+/* 全局错误横幅(JS 任何异常都显示) */
+#fatal-banner {
+  display: none;
+  padding: 10px 16px;
+  background: #fdecea;
+  color: #c62828;
+  font-size: 13px;
+  border-bottom: 1px solid #f5c6c0;
+  word-break: break-all;
+}
+
 :root {
   --bg: #f5f6f8;
   --panel: #ffffff;

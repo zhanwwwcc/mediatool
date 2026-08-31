@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "媒体工具",
+  "productName": "mediatool",
   "version": "1.0.0",
   "identifier": "com.zhanwwwcc.mediatool",
   "build": {

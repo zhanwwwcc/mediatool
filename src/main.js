@@ -1,18 +1,52 @@
 /* 媒体工具 - 前端逻辑(原生 JS,无框架)
  * 依赖 Tauri 注入的全局 API:window.__TAURI__(见 tauri.conf.json 的 withGlobalTauri)
- *   - core.invoke         调用 Rust 命令
- *   - webview ...DragDrop 监听原生文件拖拽事件
+ * 原则:任何失败都必须让用户看得见,绝不允许静默无反应。
  */
 
-const tauri = window.__TAURI__ || null;
-const invoke = tauri ? tauri.core.invoke : null;
+/* ---------- 全局错误兜底:JS 任何异常都显示为顶部红色横幅 ---------- */
+
+function showFatalBanner(msg) {
+  let el = document.getElementById('fatal-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fatal-banner';
+    document.body.prepend(el);
+  }
+  el.textContent = '运行异常:' + msg + '(请把这段文字反馈给开发者)';
+  el.style.display = 'block';
+}
+
+window.addEventListener('error', (e) => {
+  showFatalBanner(e.message || '未知脚本错误');
+});
+window.addEventListener('unhandledrejection', (e) => {
+  showFatalBanner(String(e.reason || '未知异步错误'));
+});
+
+/* ---------- Tauri API 检测 ---------- */
+
+function getInvoke() {
+  const t = window.__TAURI__;
+  if (t && t.core && typeof t.core.invoke === 'function') return t.core.invoke;
+  return null;
+}
+
+function getWebview() {
+  const t = window.__TAURI__;
+  if (t && t.webview && typeof t.webview.getCurrentWebview === 'function') {
+    return t.webview.getCurrentWebview();
+  }
+  return null;
+}
+
+/* ---------- DOM ---------- */
 
 const tabsEl = document.getElementById('tabs');
 const contentEl = document.getElementById('content');
 const emptyEl = document.getElementById('empty-state');
 const openBtn = document.getElementById('btn-open');
 
-/** @type {Array<{id:number, path:string, name:string, tabEl:HTMLElement, pageEl:HTMLElement, infoEl:HTMLElement, statusEl:HTMLElement, btnEl:HTMLButtonElement, startEl:HTMLInputElement, endEl:HTMLInputElement, nameEl:HTMLInputElement}>} */
+/** 标签页数组,每个元素对应一个打开的文件 */
 const tabs = [];
 let tabSeq = 0;
 
@@ -31,88 +65,99 @@ function fileNameOf(path) {
 
 /**
  * 容错时间解析:支持 时:分:秒(1:23:45)、分:秒(5:30)、纯秒数(90 或 90.5)
- * @returns {number} 秒数;空串返回 null;格式非法返回 NaN
+ * @returns {number|null} 秒数;空串返回 null;格式非法返回 NaN
  */
 function parseTime(str) {
   if (str == null) return null;
   str = String(str).trim();
-  if (str === '') return null;               // 留空:仅对起始时间合法
+  if (str === '') return null;
   if (/^\d+(\.\d+)?$/.test(str)) return parseFloat(str);
   const m = str.match(/^(\d{1,4}):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?$/);
   if (!m) return NaN;
   const a = parseInt(m[1], 10);
   const b = parseInt(m[2], 10);
-  if (m[3] === undefined) return a * 60 + b;          // 两段:分:秒
-  return a * 3600 + b * 60 + parseFloat(m[3]);        // 三段:时:分:秒
+  if (m[3] === undefined) return a * 60 + b;
+  return a * 3600 + b * 60 + parseFloat(m[3]);
 }
 
 /* ---------- 标签页管理 ---------- */
 
 /** 打开(或聚焦已打开的)文件:每个文件一个标签页,互相独立 */
 async function openFile(path) {
+  if (!path || typeof path !== 'string') return;
+
   const existing = tabs.find((t) => t.path === path);
   if (existing) { activateTab(existing.id); return; }
 
   const tab = { id: ++tabSeq, path, name: fileNameOf(path) };
-  tabs.push(tab);
 
-  // 标签栏中的按钮
-  tab.tabEl = document.createElement('div');
-  tab.tabEl.className = 'tab';
-  tab.tabEl.innerHTML = `<span class="tab-name" title="${escapeHtml(path)}">${escapeHtml(tab.name)}</span><span class="tab-close" title="关闭标签">✕</span>`;
-  tab.tabEl.addEventListener('click', (e) => {
-    if (e.target.classList.contains('tab-close')) { closeTab(tab.id); return; }
+  try {
+    tabs.push(tab);
+
+    // 标签栏中的按钮
+    tab.tabEl = document.createElement('div');
+    tab.tabEl.className = 'tab';
+    tab.tabEl.innerHTML = `<span class="tab-name" title="${escapeHtml(path)}">${escapeHtml(tab.name)}</span><span class="tab-close" title="关闭标签">✕</span>`;
+    tab.tabEl.addEventListener('click', (e) => {
+      if (e.target.classList.contains('tab-close')) { closeTab(tab.id); return; }
+      activateTab(tab.id);
+    });
+    tabsEl.appendChild(tab.tabEl);
+    tabsEl.hidden = false;
+    emptyEl.hidden = true;
+
+    // 标签页主体:上半文件信息、下半裁剪区
+    tab.pageEl = document.createElement('div');
+    tab.pageEl.className = 'tab-page';
+    tab.pageEl.innerHTML = `
+      <div class="filepath" title="${escapeHtml(path)}">文件:${escapeHtml(path)}</div>
+      <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
+      <div class="crop-area">
+        <h2>快速裁剪(流复制,不重编码)</h2>
+        <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始留空表示从开头开始</div>
+        <div class="form-row">
+          <label for="start-${tab.id}">起始时间</label>
+          <input type="text" id="start-${tab.id}" class="crop-start" placeholder="00:00:00(可留空)">
+          <span class="inline-hint">默认从文件开头</span>
+        </div>
+        <div class="form-row">
+          <label for="end-${tab.id}">终止时间</label>
+          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="必填,如 1:23:45 或 90">
+        </div>
+        <div class="form-row">
+          <label for="name-${tab.id}">输出文件名</label>
+          <input type="text" id="name-${tab.id}" class="crop-name" placeholder="不含扩展名,如:我的片段">
+          <span class="inline-hint">扩展名自动沿用源文件,保存到源文件所在目录</span>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="crop-btn">裁剪</button>
+          <span class="crop-status"></span>
+        </div>
+      </div>`;
+    contentEl.appendChild(tab.pageEl);
+
+    tab.infoEl = tab.pageEl.querySelector('.info-area');
+    tab.statusEl = tab.pageEl.querySelector('.crop-status');
+    tab.btnEl = tab.pageEl.querySelector('.crop-btn');
+    tab.startEl = tab.pageEl.querySelector('.crop-start');
+    tab.endEl = tab.pageEl.querySelector('.crop-end');
+    tab.nameEl = tab.pageEl.querySelector('.crop-name');
+
+    tab.btnEl.addEventListener('click', () => runCrop(tab));
+
     activateTab(tab.id);
-  });
-  tabsEl.appendChild(tab.tabEl);
-  tabsEl.hidden = false;
-  emptyEl.hidden = true;
-
-  // 标签页主体:上半文件信息、下半裁剪区
-  tab.pageEl = document.createElement('div');
-  tab.pageEl.className = 'tab-page';
-  tab.pageEl.innerHTML = `
-    <div class="filepath" title="${escapeHtml(path)}">文件:${escapeHtml(path)}</div>
-    <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
-    <div class="crop-area">
-      <h2>快速裁剪(流复制,不重编码)</h2>
-      <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始留空表示从开头开始</div>
-      <div class="form-row">
-        <label for="start-${tab.id}">起始时间</label>
-        <input type="text" id="start-${tab.id}" class="crop-start" placeholder="00:00:00(可留空)">
-        <span class="inline-hint">默认从文件开头</span>
-      </div>
-      <div class="form-row">
-        <label for="end-${tab.id}">终止时间</label>
-        <input type="text" id="end-${tab.id}" class="crop-end" placeholder="必填,如 1:23:45 或 90">
-      </div>
-      <div class="form-row">
-        <label for="name-${tab.id}">输出文件名</label>
-        <input type="text" id="name-${tab.id}" class="crop-name" placeholder="不含扩展名,如:我的片段">
-        <span class="inline-hint">扩展名自动沿用源文件,保存到源文件所在目录</span>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="crop-btn">裁剪</button>
-        <span class="crop-status"></span>
-      </div>
-    </div>`;
-  contentEl.appendChild(tab.pageEl);
-
-  tab.infoEl = tab.pageEl.querySelector('.info-area');
-  tab.statusEl = tab.pageEl.querySelector('.crop-status');
-  tab.btnEl = tab.pageEl.querySelector('.crop-btn');
-  tab.startEl = tab.pageEl.querySelector('.crop-start');
-  tab.endEl = tab.pageEl.querySelector('.crop-end');
-  tab.nameEl = tab.pageEl.querySelector('.crop-name');
-
-  tab.btnEl.addEventListener('click', () => runCrop(tab));
-
-  activateTab(tab.id);
+  } catch (err) {
+    showFatalBanner('创建标签页失败:' + err);
+    return;
+  }
 
   // 异步探测媒体信息,失败时在信息区显示错误(不影响裁剪区展示)
   try {
+    const invoke = getInvoke();
+    if (!invoke) throw new Error('Tauri API 未注入,无法读取媒体信息');
     const sections = await invoke('probe_media', { path });
     if (!tabs.includes(tab)) return; // 探测期间标签可能已被关闭
+    if (!Array.isArray(sections)) throw new Error('后端返回了意外的数据格式');
     renderInfo(tab, sections);
   } catch (err) {
     if (!tabs.includes(tab)) return;
@@ -152,7 +197,7 @@ function renderInfo(tab, sections) {
     <section class="info-section">
       <h3>${escapeHtml(sec.title)}</h3>
       <dl class="kv">
-        ${sec.items.map((it) =>
+        ${(sec.items || []).map((it) =>
           `<div class="kv-row"><dt>${escapeHtml(it.label)}</dt><dd>${escapeHtml(it.value)}</dd></div>`
         ).join('')}
       </dl>
@@ -167,11 +212,7 @@ async function runCrop(tab) {
   const start = parseTime(tab.startEl.value);
   const end = parseTime(tab.endEl.value);
 
-  if (start === null && tab.startEl.value.trim() !== '') {
-    setStatus(tab, 'error', '起始时间格式不对:支持 时:分:秒(1:23:45)、分:秒(5:30)或纯秒数(90)');
-    return;
-  }
-  if (isNaN(start) || start < 0) {
+  if (isNaN(start) || (start !== null && start < 0)) {
     setStatus(tab, 'error', '起始时间格式不对:支持 时:分:秒(1:23:45)、分:秒(5:30)或纯秒数(90)');
     return;
   }
@@ -200,12 +241,17 @@ async function runCrop(tab) {
   }
 
   // 3. 调用 Rust 命令执行裁剪(阻塞在后端线程,界面不卡)
+  const invoke = getInvoke();
+  if (!invoke) {
+    setStatus(tab, 'error', 'Tauri API 未注入,无法执行裁剪');
+    return;
+  }
   tab.btnEl.disabled = true;
   setStatus(tab, 'pending', '正在裁剪(流复制,通常几秒完成)…');
   try {
     const result = await invoke('crop_media', {
       input: tab.path,
-      start: start,           // null 表示从开头
+      start: start,
       end: end,
       outputName: outName,
     });
@@ -225,24 +271,43 @@ function setStatus(tab, kind, text) {
 /* ---------- 打开文件(按钮 + 拖拽) ---------- */
 
 openBtn.addEventListener('click', async () => {
-  if (!invoke) return;
+  const invoke = getInvoke();
+  if (!invoke) {
+    alert('Tauri API 未注入(window.__TAURI__.core.invoke 不存在),无法打开文件选择器。请把这句话反馈给开发者。');
+    return;
+  }
   try {
     // 系统文件选择器,支持多选(Rust 端弹出)
     const paths = await invoke('open_files');
-    (paths || []).forEach(openFile);
+    if (Array.isArray(paths) && paths.length > 0) {
+      paths.forEach((p) => openFile(p));
+    }
+    // 返回空数组 = 用户取消了选择,无需提示
   } catch (err) {
-    alert(`打开文件失败:${err}`);
+    alert('打开文件失败:' + err);
   }
 });
 
-if (tauri && tauri.webview && tauri.webview.getCurrentWebview) {
-  // 原生拖拽:一次拖入多个文件,逐个自动打开为标签页
-  tauri.webview.getCurrentWebview().onDragDropEvent((event) => {
-    const p = event.payload;
-    if (p.type === 'drop' && Array.isArray(p.paths)) {
-      p.paths.forEach((path) => openFile(path));
-    }
-    const dragging = p.type === 'enter' || p.type === 'over';
-    document.body.classList.toggle('dragging', dragging);
-  });
+/* 原生拖拽:一次拖入多个文件,逐个自动打开为标签页 */
+try {
+  const webview = getWebview();
+  if (webview) {
+    webview.onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === 'drop' && Array.isArray(p.paths)) {
+        p.paths.forEach((path) => openFile(path));
+      }
+      const dragging = p.type === 'enter' || p.type === 'over';
+      document.body.classList.toggle('dragging', dragging);
+    });
+  } else {
+    showFatalBanner('window.__TAURI__.webview 不可用,拖拽功能失效');
+  }
+} catch (err) {
+  showFatalBanner('注册拖拽监听失败:' + err);
+}
+
+/* 启动自检:页面加载成功 + Tauri API 状态 */
+if (!window.__TAURI__) {
+  showFatalBanner('window.__TAURI__ 不存在(脚本已加载,但 Tauri 全局 API 未注入)');
 }
