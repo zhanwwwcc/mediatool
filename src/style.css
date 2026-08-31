@@ -111,6 +111,20 @@ body {
   cursor: pointer;
   border-right: 1px solid var(--border);
   white-space: nowrap;
+  margin-bottom: 8px; /* 给底部水平滚动条留位置,文字不被遮挡 */
+  position: relative; /* 让 ::after 锚定在 .tab 上 */
+}
+
+/* 把标签之间的竖向分隔线向下延伸 8px,贯通到 .tabs 底部滚动条区域 */
+.tab::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: -8px; /* 从 .tab 底部再向下延伸 8px,贯通 .tabs 滚动条区 */
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
 }
 
 .tab .tab-name {

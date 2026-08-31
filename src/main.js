@@ -122,7 +122,8 @@ async function openFile(path) {
         </div>
         <div class="form-row">
           <label for="end-${tab.id}">终止时间</label>
-          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="留空 = 到文件结尾">
+          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="00:00:00(可留空)">
+          <span class="inline-hint">默认到文件结尾</span>
         </div>
         <div class="form-row">
           <label for="name-${tab.id}">输出文件名</label>

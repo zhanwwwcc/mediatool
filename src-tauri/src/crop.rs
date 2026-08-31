@@ -10,6 +10,7 @@ use std::process::Command;
 use crate::ffbin;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CropResult {
     pub output_path: String,
 }
