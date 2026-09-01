@@ -19,6 +19,9 @@
   <!-- 标签栏:每个打开的文件一个标签,可单独关闭 -->
   <nav id="tabs" class="tabs" hidden></nav>
 
+  <!-- 当前文件路径栏(全局固定,与 .tabs 同级,任何滚动/重排都不会被遮挡) -->
+  <div id="filepath" class="filepath" hidden></div>
+
   <!-- 主内容区:无文件时的空状态提示 / 各文件的标签页 -->
   <main id="content" class="content">
     <div id="empty-state" class="empty-state">

@@ -19,7 +19,8 @@ pub struct CropResult {
 /// - `input`:源文件绝对路径
 /// - `start`:起始秒数,None 表示从文件开头开始
 /// - `end`:终止秒数,None 表示裁剪到文件结尾
-/// - `output_name`:用户填写的输出文件名(不含扩展名)
+/// - `output_name`:用户填写的输出文件名(不含扩展名,为空时由前端自动生成 原名-cut)
+/// - `output_dir`:输出文件夹,None/空 表示源文件所在目录
 #[tauri::command]
 pub async fn crop_media(
     app: tauri::AppHandle,
@@ -27,9 +28,10 @@ pub async fn crop_media(
     start: Option<f64>,
     end: Option<f64>,
     output_name: String,
+    output_dir: Option<String>,
 ) -> Result<CropResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crop_blocking(&app, &input, start, end, &output_name)
+        crop_blocking(&app, &input, start, end, &output_name, output_dir.as_deref())
     })
     .await
     .map_err(|e| format!("裁剪任务异常退出:{}", e))?
@@ -41,6 +43,7 @@ fn crop_blocking(
     start: Option<f64>,
     end: Option<f64>,
     output_name: &str,
+    output_dir: Option<&str>,
 ) -> Result<CropResult, String> {
     /* ---------- 1. 参数校验 ---------- */
     let name = validate_output_name(output_name)?;
@@ -69,10 +72,19 @@ fn crop_blocking(
         Some(e) if !e.is_empty() => e.to_string(),
         _ => return Err("源文件没有扩展名,无法确定输出格式".to_string()),
     };
-    // 输出保存到源文件所在目录
-    let dir = match src.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d,
-        _ => Path::new("."),
+    // 输出目录:用户指定时用指定目录,否则用源文件所在目录
+    let dir = match output_dir {
+        Some(d) if !d.trim().is_empty() => {
+            let p = Path::new(d.trim());
+            if !p.is_dir() {
+                return Err(format!("输出文件夹不存在:{}", d));
+            }
+            p.to_path_buf()
+        }
+        _ => match src.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+            _ => Path::new(".").to_path_buf(),
+        },
     };
     let ext_part = format!(".{}", ext);
     let mut out_path = dir.join(format!("{}{}", name, ext_part));

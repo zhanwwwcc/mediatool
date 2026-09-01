@@ -45,6 +45,7 @@ const tabsEl = document.getElementById('tabs');
 const contentEl = document.getElementById('content');
 const emptyEl = document.getElementById('empty-state');
 const openBtn = document.getElementById('btn-open');
+const filepathEl = document.getElementById('filepath');
 
 /** 标签页数组,每个元素对应一个打开的文件 */
 const tabs = [];
@@ -61,6 +62,13 @@ function escapeHtml(s) {
 function fileNameOf(path) {
   const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return i >= 0 ? path.slice(i + 1) : path;
+}
+
+/** 文件名去扩展名(如 base.mp4 → base) */
+function stemName(path) {
+  const base = fileNameOf(path);
+  const i = base.lastIndexOf('.');
+  return i > 0 ? base.slice(0, i) : base;
 }
 
 /**
@@ -106,12 +114,12 @@ async function openFile(path) {
     tabsEl.hidden = false;
     emptyEl.hidden = true;
 
-    // 标签页主体:上半文件信息、下半裁剪区
+    // 标签页主体:信息区 + 分隔条 + 裁剪区 + 缩略图区(自身作为滚动容器)
     tab.pageEl = document.createElement('div');
     tab.pageEl.className = 'tab-page';
     tab.pageEl.innerHTML = `
-      <div class="filepath" title="${escapeHtml(path)}">文件:${escapeHtml(path)}</div>
       <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
+      <div class="splitter" title="拖动调整信息区高度"></div>
       <div class="crop-area">
         <h2>快速裁剪(流复制,不重编码)</h2>
         <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始、终止均可留空(默认从开头裁剪到文件结尾)</div>
@@ -127,24 +135,105 @@ async function openFile(path) {
         </div>
         <div class="form-row">
           <label for="name-${tab.id}">输出文件名</label>
-          <input type="text" id="name-${tab.id}" class="crop-name" placeholder="不含扩展名,如:我的片段">
-          <span class="inline-hint">扩展名自动沿用源文件,保存到源文件所在目录</span>
+          <input type="text" id="name-${tab.id}" class="crop-name" placeholder="留空自动:原名-cut">
+          <span class="inline-hint">扩展名自动沿用源文件</span>
+        </div>
+        <div class="form-row">
+          <label for="crop-dir-${tab.id}">输出文件夹</label>
+          <input type="text" id="crop-dir-${tab.id}" class="crop-dir" placeholder="留空 = 源文件所在目录" readonly>
+          <button type="button" class="dir-btn" data-target="crop-dir-${tab.id}">选择…</button>
         </div>
         <div class="form-actions">
           <button type="button" class="crop-btn">裁剪</button>
           <span class="crop-status"></span>
         </div>
+      </div>
+      <div class="thumb-area">
+        <h2>视频缩略图</h2>
+        <div class="thumb-hint">填写缩略图数量,程序按视频时长自动均分取帧,生成一张总图(纯音频文件不支持)</div>
+        <div class="form-row">
+          <label for="thumb-count-${tab.id}">缩略图数量</label>
+          <input type="number" id="thumb-count-${tab.id}" class="thumb-count" min="1" max="200" placeholder="如 12">
+          <div class="thumb-quick" role="group" aria-label="快捷数量">
+            <button type="button" data-count="6" title="3 列 × 2 行">6</button>
+            <button type="button" data-count="12" title="4 列 × 3 行">12</button>
+            <button type="button" data-count="20" title="5 列 × 4 行">20</button>
+            <button type="button" data-count="24" title="6 列 × 4 行">24</button>
+            <button type="button" data-count="36" title="6 列 × 6 行">36</button>
+          </div>
+          <span class="inline-hint">点一下填入</span>
+        </div>
+        <div class="form-row">
+          <label for="thumb-dir-${tab.id}">输出文件夹</label>
+          <input type="text" id="thumb-dir-${tab.id}" class="thumb-dir" placeholder="留空 = 源文件所在目录" readonly>
+          <button type="button" class="dir-btn" data-target="thumb-dir-${tab.id}">选择…</button>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="thumb-btn">生成缩略图</button>
+          <span class="thumb-status"></span>
+        </div>
       </div>`;
     contentEl.appendChild(tab.pageEl);
 
     tab.infoEl = tab.pageEl.querySelector('.info-area');
+    tab.splitterEl = tab.pageEl.querySelector('.splitter');
     tab.statusEl = tab.pageEl.querySelector('.crop-status');
     tab.btnEl = tab.pageEl.querySelector('.crop-btn');
     tab.startEl = tab.pageEl.querySelector('.crop-start');
     tab.endEl = tab.pageEl.querySelector('.crop-end');
     tab.nameEl = tab.pageEl.querySelector('.crop-name');
+    tab.dirEl = tab.pageEl.querySelector('.crop-dir');
 
     tab.btnEl.addEventListener('click', () => runCrop(tab));
+
+    // 分隔条:拖动调整信息区高度(最小 120px,最多给下方功能区留 180px)
+    tab.splitterEl.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = tab.infoEl.getBoundingClientRect().height;
+      const onMove = (ev) => {
+        const dy = ev.clientY - startY;
+        const maxH = tab.pageEl.clientHeight - 180;
+        const newH = Math.max(120, Math.min(startH + dy, maxH));
+        tab.infoEl.style.flex = `0 0 ${newH}px`;
+      };
+      const onUp = () => {
+        tab.splitterEl.classList.remove('dragging');
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      tab.splitterEl.classList.add('dragging');
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+
+    // 缩略图区:快捷数量按钮、输入框、生成按钮
+    tab.thumbCountEl = tab.pageEl.querySelector('.thumb-count');
+    tab.thumbBtnEl = tab.pageEl.querySelector('.thumb-btn');
+    tab.thumbStatusEl = tab.pageEl.querySelector('.thumb-status');
+    tab.thumbDirEl = tab.pageEl.querySelector('.thumb-dir');
+    tab.pageEl.querySelectorAll('.thumb-quick button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tab.thumbCountEl.value = btn.dataset.count;
+        tab.thumbCountEl.focus();
+      });
+    });
+    tab.thumbBtnEl.addEventListener('click', () => runThumbnail(tab));
+
+    // 输出文件夹「选择…」按钮:两个板块共用,按 data-target 找目标输入框
+    tab.pageEl.querySelectorAll('.dir-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const target = document.getElementById(btn.dataset.target);
+        const invoke = getInvoke();
+        if (!invoke || !target) return;
+        try {
+          const dir = await invoke('open_folder');
+          if (dir) target.value = dir;
+        } catch (err) {
+          alert('选择文件夹失败:' + err);
+        }
+      });
+    });
 
     activateTab(tab.id);
   } catch (err) {
@@ -168,11 +257,21 @@ async function openFile(path) {
 
 /** 切换到指定标签页 */
 function activateTab(id) {
+  let active = null;
   tabs.forEach((t) => {
-    const active = t.id === id;
-    t.tabEl.classList.toggle('active', active);
-    t.pageEl.classList.toggle('active', active);
+    const isActive = t.id === id;
+    t.tabEl.classList.toggle('active', isActive);
+    t.pageEl.classList.toggle('active', isActive);
+    if (isActive) active = t;
   });
+  // 同步更新全局路径栏
+  if (active) {
+    filepathEl.textContent = `文件:${active.path}`;
+    filepathEl.title = active.path;
+    filepathEl.hidden = false;
+  } else {
+    filepathEl.hidden = true;
+  }
 }
 
 /** 关闭标签页 */
@@ -226,11 +325,10 @@ async function runCrop(tab) {
     return;
   }
 
-  // 2. 输出文件名(不含扩展名,扩展名由 Rust 端沿用源文件)
-  const outName = tab.nameEl.value.trim();
+  // 2. 输出文件名(不含扩展名,扩展名由 Rust 端沿用源文件;留空自动用「原名-cut」)
+  let outName = tab.nameEl.value.trim();
   if (!outName) {
-    setStatus(tab, 'error', '请填写输出文件名(不含扩展名)');
-    return;
+    outName = stemName(tab.path) + '-cut';
   }
   if (/[\\/:]/.test(outName)) {
     setStatus(tab, 'error', '输出文件名不能包含 / \\ : 等字符');
@@ -251,6 +349,7 @@ async function runCrop(tab) {
       start: start,
       end: end,
       outputName: outName,
+      outputDir: tab.dirEl.value.trim() || null,
     });
     setStatus(tab, 'success', `裁剪完成:${result.outputPath}`);
   } catch (err) {
@@ -263,6 +362,49 @@ async function runCrop(tab) {
 function setStatus(tab, kind, text) {
   tab.statusEl.className = `crop-status ${kind}`;
   tab.statusEl.textContent = text;
+}
+
+/* ---------- 视频缩略图 ---------- */
+
+async function runThumbnail(tab) {
+  // 1. 校验数量(1~200 的整数,允许为空提示)
+  const raw = tab.thumbCountEl.value.trim();
+  if (raw === '') {
+    setThumbStatus(tab, 'error', '请填写缩略图数量,或点右侧快捷按钮(6/12/20/24/36)');
+    return;
+  }
+  const count = parseInt(raw, 10);
+  if (!Number.isInteger(count) || String(count) !== raw || count < 1 || count > 200) {
+    setThumbStatus(tab, 'error', '缩略图数量需为 1~200 的整数');
+    return;
+  }
+
+  // 2. 调用 Rust 命令生成总图
+  const invoke = getInvoke();
+  if (!invoke) {
+    setThumbStatus(tab, 'error', 'Tauri API 未注入,无法生成缩略图');
+    return;
+  }
+  tab.thumbBtnEl.disabled = true;
+  setThumbStatus(tab, 'pending', '正在生成缩略图(需解码视频帧,稍候)…');
+  try {
+    const result = await invoke('make_thumbnail', {
+      input: tab.path,
+      count,
+      outputDir: tab.thumbDirEl.value.trim() || null,
+    });
+    setThumbStatus(tab, 'success', `缩略图已生成:${result.outputPath}`);
+  } catch (err) {
+    setThumbStatus(tab, 'error', String(err));
+  } finally {
+    tab.thumbBtnEl.disabled = false;
+  }
+}
+
+function setThumbStatus(tab, kind, text) {
+  // 保留 thumb-status 类,同时挂 crop-status 以便复用成功/失败/等待的颜色
+  tab.thumbStatusEl.className = `thumb-status crop-status ${kind}`;
+  tab.thumbStatusEl.textContent = text;
 }
 
 /* ---------- 打开文件(按钮 + 拖拽) ---------- */

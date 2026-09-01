@@ -210,11 +210,13 @@ body.dragging::after {
   display: none;
   height: 100%;
   flex-direction: column;
+  overflow-y: auto;
 }
 .tab-page.active { display: flex; }
 
-/* 文件路径 */
+/* 文件路径:全局独立栏,body flex column 中 flex-shrink: 0,固定不滚动不压缩 */
 .filepath {
+  flex-shrink: 0;
   padding: 6px 16px;
   font-size: 12px;
   color: var(--muted);
@@ -225,11 +227,23 @@ body.dragging::after {
   text-overflow: ellipsis;
 }
 
-/* 上半部分:文件信息 */
+/* 上半部分:文件信息(默认占满剩余空间,拖分隔条后变固定高度) */
 .info-area {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   padding: 12px 16px;
+}
+
+/* 信息区与功能板块之间的可拖动分隔条 */
+.splitter {
+  flex: 0 0 7px;
+  cursor: row-resize;
+  user-select: none;
+}
+.splitter:hover, .splitter.dragging {
+  background: var(--accent);
+  opacity: 0.3;
 }
 
 .info-loading { color: var(--muted); padding: 8px 0; }
@@ -342,3 +356,93 @@ body.dragging::after {
 .crop-status.success { color: var(--success); }
 .crop-status.error { color: var(--error); }
 .crop-status.pending { color: var(--muted); }
+
+/* ---------- 视频缩略图区(与快速裁剪风格统一) ---------- */
+
+.thumb-area {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 12px 16px 14px;
+}
+
+.thumb-area h2 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.thumb-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* 数量输入框:与裁剪输入框样式一致(等宽字体),并隐藏数字上下箭头 */
+.form-row .thumb-count {
+  width: 220px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+.form-row .thumb-count:focus { border-color: var(--accent); }
+.form-row .thumb-count::-webkit-outer-spin-button,
+.form-row .thumb-count::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.thumb-quick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thumb-quick button {
+  padding: 4px 11px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.thumb-quick button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.thumb-quick button:active { transform: translateY(1px); }
+
+/* 「生成缩略图」按钮:与「裁剪」按钮样式一致(蓝色实心) */
+.thumb-btn {
+  padding: 7px 22px;
+  font-size: 13.5px;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.thumb-btn:hover { background: var(--accent-dark); }
+.thumb-btn:disabled { background: #9db4e8; cursor: not-allowed; }
+
+/* 输出文件夹「选择…」按钮 */
+.dir-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dir-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dir-btn:active { transform: translateY(1px); }
+
+/* 输出文件夹只读输入框:与普通输入框同款,留空时显示浅色占位 */
+.form-row input[readonly] {
+  background: #fafbfc;
+  color: var(--muted);
+}

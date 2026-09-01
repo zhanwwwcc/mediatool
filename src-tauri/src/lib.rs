@@ -3,6 +3,7 @@
 mod crop;
 mod ffbin;
 mod media;
+mod thumb;
 
 use tauri_plugin_dialog::DialogExt;
 
@@ -45,14 +46,39 @@ async fn open_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     }
 }
 
+/// 打开系统文件夹选择器,返回所选文件夹的绝对路径;取消返回 None。
+/// 同样使用非阻塞回调模式,不阻塞主线程。
+#[tauri::command]
+async fn open_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    app.dialog()
+        .file()
+        .set_title("选择输出文件夹")
+        .pick_folder(move |folder| {
+            let _ = tx.blocking_send(folder);
+        });
+
+    let picked = rx
+        .recv()
+        .await
+        .ok_or_else(|| "文件夹对话框异常:内部通道已关闭".to_string())?;
+
+    match picked {
+        Some(f) => Ok(f.as_path().map(|p| p.to_string_lossy().into_owned())),
+        None => Ok(None),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_files,
+            open_folder,
             media::probe_media,
-            crop::crop_media
+            crop::crop_media,
+            thumb::make_thumbnail
         ])
         .run(tauri::generate_context!())
         .expect("媒体工具启动失败");
