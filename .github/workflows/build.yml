@@ -6,12 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 前置 job:先创建(或复用)本次版本号的 Release,tag 只建一次,
-  # 避免三个平台并行构建时抢建同名 Release 触发 already_exists 竞态。
+  # 前置 job:创建(或复用)本次版本号的 Release,并输出其 id。
+  # 后续构建 job 用 releaseId 直接上传资产,彻底避开并发抢建同名 tag 的竞态。
   create-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      release_id: ${{ steps.rel.outputs.release_id }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -20,19 +22,23 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*"version": "\([0-9][0-9.]*\)".*/\1/p' src-tauri/tauri.conf.json)
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-      - name: 创建(或复用)Release
+      - name: 创建(或复用)Release 并输出 id
+        id: rel
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG 已存在,直接复用(构建完成后上传资产覆盖)"
+          BODY="媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。"
+          RID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id' 2>/dev/null || true)
+          if [ -z "$RID" ]; then
+            RID=$(gh api "repos/${{ github.repository }}/releases" --method POST \
+              -f "tag_name=${TAG}" -f "name=媒体工具 ${TAG}" -f "body=${BODY}" \
+              --jq '.id')
+            echo "Release ${TAG} 已创建(id=${RID})"
           else
-            gh release create "$TAG" \
-              --title "媒体工具 $TAG" \
-              --notes "媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。"
-            echo "Release $TAG 已创建"
+            echo "Release ${TAG} 已存在,复用(id=${RID})"
           fi
+          echo "release_id=${RID}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: create-release
@@ -124,7 +130,7 @@ jobs:
         with:
           projectPath: .
           tauriScript: npm run tauri
-          tagName: v__VERSION__
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: '媒体工具 v__VERSION__'
           releaseBody: '媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。'
           releaseDraft: false
