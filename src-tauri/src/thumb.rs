@@ -53,7 +53,7 @@ fn thumb_blocking(
 
     /* ---------- 2. ffprobe 读取时长与视频流 ---------- */
     let ffprobe = ffbin::resource_binary(app, "ffprobe")?;
-    let out = Command::new(&ffprobe)
+    let out = ffbin::prepare(Command::new(&ffprobe))
         .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"])
         .arg(input)
         .output()
@@ -114,7 +114,7 @@ fn thumb_blocking(
     /* ---------- 5. 执行 ffmpeg(fps 均匀取帧 → 缩放 → 拼图) ---------- */
     let ffmpeg = ffbin::resource_binary(app, "ffmpeg")?;
     let vf = format!("fps=1/{:.6},scale=240:-1,tile={}x{}", interval, cols, rows);
-    let cmd_out = Command::new(&ffmpeg)
+    let cmd_out = ffbin::prepare(Command::new(&ffmpeg))
         .arg("-i")
         .arg(input)
         .args(["-vf", &vf])
@@ -138,15 +138,15 @@ fn thumb_blocking(
     })
 }
 
-/// 拼图布局(列数, 行数),对应 ffmpeg tile 参数。
-/// 快捷数量 6/12/20/24/36 使用用户指定的固定布局(行×列分别为 2×3、3×4、4×5、4×6、6×6);
-/// 其他数量用通用公式:列 = ceil(√n),行 = ceil(n/列),保证列≥行、接近正方形。
+/// 拼图布局(横数, 竖数),对应 ffmpeg tile 参数的 列x行。
+/// 用户约定"横在前、竖在后":6 = 2×3(横 2 竖 3)、12 = 3×4、20 = 4×5、24 = 4×6、36 = 6×6;
+/// 其他数量用通用公式:横 = ceil(√n),竖 = ceil(n/横)。
 fn layout_for(count: u32) -> (u32, u32) {
     match count {
-        6 => (3, 2),
-        12 => (4, 3),
-        20 => (5, 4),
-        24 => (6, 4),
+        6 => (2, 3),
+        12 => (3, 4),
+        20 => (4, 5),
+        24 => (4, 6),
         36 => (6, 6),
         _ => {
             let cols = ((count as f64).sqrt().ceil()).max(1.0) as u32;

@@ -92,7 +92,7 @@ fn probe_blocking(app: &tauri::AppHandle, path: &str) -> Result<Vec<InfoSection>
     let ffprobe = ffbin::resource_binary(app, "ffprobe")?;
 
     // 约定用法:错误级别静默 + JSON 输出 + 容器与流信息
-    let out = Command::new(&ffprobe)
+    let out = ffbin::prepare(Command::new(&ffprobe))
         .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"])
         .arg(path)
         .output()

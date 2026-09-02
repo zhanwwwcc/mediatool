@@ -39,3 +39,17 @@ pub fn resource_binary(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
         name
     ))
 }
+
+/// 统一初始化 ffmpeg/ffprobe 子进程:
+/// Windows 下加 CREATE_NO_WINDOW,避免 GUI 程序调用时弹出黑色控制台窗口。
+/// 返回配置好的 Command,便于继续链式调用。
+#[allow(unused_mut)] // Windows 分支才需要 mut,避免非 Windows 编译产生 unused_mut 警告
+pub fn prepare(mut cmd: std::process::Command) -> std::process::Command {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}

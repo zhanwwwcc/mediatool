@@ -100,7 +100,7 @@ fn crop_blocking(
 
     /* ---------- 3. 执行 ffmpeg(流复制,不重编码) ---------- */
     let ffmpeg = ffbin::resource_binary(app, "ffmpeg")?;
-    let mut cmd = Command::new(&ffmpeg);
+    let mut cmd = ffbin::prepare(Command::new(&ffmpeg));
     if let Some(s) = start {
         cmd.arg("-ss").arg(fmt_secs(s));
     }

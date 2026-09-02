@@ -46,6 +46,9 @@ const contentEl = document.getElementById('content');
 const emptyEl = document.getElementById('empty-state');
 const openBtn = document.getElementById('btn-open');
 const filepathEl = document.getElementById('filepath');
+const panelBarEl = document.getElementById('panel-bar');
+const cropPanelBtn = document.getElementById('btn-crop-panel');
+const thumbPanelBtn = document.getElementById('btn-thumb-panel');
 
 /** 标签页数组,每个元素对应一个打开的文件 */
 const tabs = [];
@@ -114,13 +117,12 @@ async function openFile(path) {
     tabsEl.hidden = false;
     emptyEl.hidden = true;
 
-    // 标签页主体:信息区 + 分隔条 + 裁剪区 + 缩略图区(自身作为滚动容器)
+    // 标签页主体:信息区(默认占满) + 裁剪区/缩略图区(默认隐藏,由左下角按钮展开)
     tab.pageEl = document.createElement('div');
     tab.pageEl.className = 'tab-page';
     tab.pageEl.innerHTML = `
       <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
-      <div class="splitter" title="拖动调整信息区高度"></div>
-      <div class="crop-area">
+      <div class="crop-area" hidden>
         <h2>快速裁剪(流复制,不重编码)</h2>
         <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始、终止均可留空(默认从开头裁剪到文件结尾)</div>
         <div class="form-row">
@@ -148,18 +150,18 @@ async function openFile(path) {
           <span class="crop-status"></span>
         </div>
       </div>
-      <div class="thumb-area">
+      <div class="thumb-area" hidden>
         <h2>视频缩略图</h2>
         <div class="thumb-hint">填写缩略图数量,程序按视频时长自动均分取帧,生成一张总图(纯音频文件不支持)</div>
         <div class="form-row">
           <label for="thumb-count-${tab.id}">缩略图数量</label>
           <input type="number" id="thumb-count-${tab.id}" class="thumb-count" min="1" max="200" placeholder="如 12">
           <div class="thumb-quick" role="group" aria-label="快捷数量">
-            <button type="button" data-count="6" title="3 列 × 2 行">6</button>
-            <button type="button" data-count="12" title="4 列 × 3 行">12</button>
-            <button type="button" data-count="20" title="5 列 × 4 行">20</button>
-            <button type="button" data-count="24" title="6 列 × 4 行">24</button>
-            <button type="button" data-count="36" title="6 列 × 6 行">36</button>
+            <button type="button" data-count="6" title="横 2 × 竖 3">6</button>
+            <button type="button" data-count="12" title="横 3 × 竖 4">12</button>
+            <button type="button" data-count="20" title="横 4 × 竖 5">20</button>
+            <button type="button" data-count="24" title="横 4 × 竖 6">24</button>
+            <button type="button" data-count="36" title="横 6 × 竖 6">36</button>
           </div>
           <span class="inline-hint">点一下填入</span>
         </div>
@@ -176,7 +178,8 @@ async function openFile(path) {
     contentEl.appendChild(tab.pageEl);
 
     tab.infoEl = tab.pageEl.querySelector('.info-area');
-    tab.splitterEl = tab.pageEl.querySelector('.splitter');
+    tab.cropAreaEl = tab.pageEl.querySelector('.crop-area');
+    tab.thumbAreaEl = tab.pageEl.querySelector('.thumb-area');
     tab.statusEl = tab.pageEl.querySelector('.crop-status');
     tab.btnEl = tab.pageEl.querySelector('.crop-btn');
     tab.startEl = tab.pageEl.querySelector('.crop-start');
@@ -185,27 +188,6 @@ async function openFile(path) {
     tab.dirEl = tab.pageEl.querySelector('.crop-dir');
 
     tab.btnEl.addEventListener('click', () => runCrop(tab));
-
-    // 分隔条:拖动调整信息区高度(最小 120px,最多给下方功能区留 180px)
-    tab.splitterEl.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const startY = e.clientY;
-      const startH = tab.infoEl.getBoundingClientRect().height;
-      const onMove = (ev) => {
-        const dy = ev.clientY - startY;
-        const maxH = tab.pageEl.clientHeight - 180;
-        const newH = Math.max(120, Math.min(startH + dy, maxH));
-        tab.infoEl.style.flex = `0 0 ${newH}px`;
-      };
-      const onUp = () => {
-        tab.splitterEl.classList.remove('dragging');
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-      };
-      tab.splitterEl.classList.add('dragging');
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    });
 
     // 缩略图区:快捷数量按钮、输入框、生成按钮
     tab.thumbCountEl = tab.pageEl.querySelector('.thumb-count');
@@ -264,15 +246,48 @@ function activateTab(id) {
     t.pageEl.classList.toggle('active', isActive);
     if (isActive) active = t;
   });
-  // 同步更新全局路径栏
+  // 同步更新全局路径栏与底部功能按钮
   if (active) {
     filepathEl.textContent = `文件:${active.path}`;
     filepathEl.title = active.path;
     filepathEl.hidden = false;
+    panelBarEl.hidden = false;
+    syncPanelButtons(active);
   } else {
     filepathEl.hidden = true;
+    panelBarEl.hidden = true;
   }
 }
+
+/** 让底部两个按钮的高亮状态与当前标签页的面板开合一致 */
+function syncPanelButtons(tab) {
+  cropPanelBtn.classList.toggle('active', tab && !tab.cropAreaEl.hidden);
+  thumbPanelBtn.classList.toggle('active', tab && !tab.thumbAreaEl.hidden);
+}
+
+/** 当前激活标签页 */
+function activeTab() {
+  for (const t of tabs) {
+    if (t.tabEl.classList.contains('active')) return t;
+  }
+  return null;
+}
+
+/* ---------- 底部功能按钮:展开/收起裁剪、缩略图面板 ---------- */
+
+cropPanelBtn.addEventListener('click', () => {
+  const tab = activeTab();
+  if (!tab) return;
+  tab.cropAreaEl.hidden = !tab.cropAreaEl.hidden;
+  syncPanelButtons(tab);
+});
+
+thumbPanelBtn.addEventListener('click', () => {
+  const tab = activeTab();
+  if (!tab) return;
+  tab.thumbAreaEl.hidden = !tab.thumbAreaEl.hidden;
+  syncPanelButtons(tab);
+});
 
 /** 关闭标签页 */
 function closeTab(id) {
@@ -285,6 +300,8 @@ function closeTab(id) {
   if (tabs.length === 0) {
     tabsEl.hidden = true;
     emptyEl.hidden = false;
+    filepathEl.hidden = true;
+    panelBarEl.hidden = true;
   } else if (wasActive) {
     activateTab(tabs[Math.max(0, idx - 1)].id);
   }
