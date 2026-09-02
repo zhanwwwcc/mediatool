@@ -6,7 +6,36 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 前置 job:先创建(或复用)本次版本号的 Release,tag 只建一次,
+  # 避免三个平台并行构建时抢建同名 Release 触发 already_exists 竞态。
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 读取版本号
+        id: ver
+        run: |
+          VERSION=$(sed -n 's/.*"version": "\([0-9][0-9.]*\)".*/\1/p' src-tauri/tauri.conf.json)
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: 创建(或复用)Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在,直接复用(构建完成后上传资产覆盖)"
+          else
+            gh release create "$TAG" \
+              --title "媒体工具 $TAG" \
+              --notes "媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。"
+            echo "Release $TAG 已创建"
+          fi
+
   build:
+    needs: create-release
     permissions:
       contents: write
     strategy:
