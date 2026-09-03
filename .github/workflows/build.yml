@@ -29,6 +29,13 @@ jobs:
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
           BODY="媒体信息查看 + 快速裁剪(不重编码、不播放、完全离线)。macOS 为 .dmg(Apple Silicon / Intel 各一),Windows 为 NSIS 安装器(.exe)。"
+          # 1) 先确保 git tag 存在:POST /releases 在 tag 不存在时曾出现 CI 全绿却未建出 Release 的问题
+          if ! gh api "repos/${{ github.repository }}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+            gh api "repos/${{ github.repository }}/git/refs" --method POST \
+              -f "ref=refs/tags/${TAG}" -f "sha=${GITHUB_SHA}" >/dev/null
+            echo "git tag ${TAG} 已创建"
+          fi
+          # 2) 创建(或复用)Release 并输出 id
           RID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id' 2>/dev/null || true)
           if [ -z "$RID" ]; then
             RID=$(gh api "repos/${{ github.repository }}/releases" --method POST \
