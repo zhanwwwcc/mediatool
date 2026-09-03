@@ -1,6 +1,6 @@
 // 视频缩略图总图(contact sheet):
 // 按用户填写的缩略图数量,根据视频时长自动计算取帧间隔,均匀取帧并拼成一张大图。
-// 输出到源文件所在目录,文件名 = 原名-thumb.jpg(同名自动加 (1) 防覆盖)。
+// 输出到源文件所在目录,文件名 = 原名-thumb.png(同名自动加 (1) 防覆盖)。
 
 use serde::Serialize;
 use std::path::Path;
@@ -18,15 +18,17 @@ pub struct ThumbResult {
 /// - `input`:源文件绝对路径
 /// - `count`:缩略图数量(1~200)
 /// - `output_dir`:输出文件夹,None/空 表示源文件所在目录
+/// - `format`:输出图片格式,None/"png" 为 PNG,"jpg"/"jpeg" 为 JPG
 #[tauri::command]
 pub async fn make_thumbnail(
     app: tauri::AppHandle,
     input: String,
     count: u32,
     output_dir: Option<String>,
+    format: Option<String>,
 ) -> Result<ThumbResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        thumb_blocking(&app, &input, count, output_dir.as_deref())
+        thumb_blocking(&app, &input, count, output_dir.as_deref(), format.as_deref())
     })
     .await
     .map_err(|e| format!("缩略图任务异常退出:{}", e))?
@@ -37,6 +39,7 @@ fn thumb_blocking(
     input: &str,
     count: u32,
     output_dir: Option<&str>,
+    format: Option<&str>,
 ) -> Result<ThumbResult, String> {
     /* ---------- 1. 参数校验 ---------- */
     if !(1..=200).contains(&count) {
@@ -86,6 +89,12 @@ fn thumb_blocking(
     // 间隔 = 时长 / 数量,保证从头到尾均匀取到 count 帧
     let interval = duration / count as f64;
     let (cols, rows) = layout_for(count);
+    // 竖屏视频(高 > 宽)时对调横竖,让布局贴合竖屏比例
+    let (cols, rows) = if video_is_vertical(&parsed) {
+        (rows, cols)
+    } else {
+        (cols, rows)
+    };
 
     /* ---------- 4. 确定输出路径(用户目录或源目录,防覆盖) ---------- */
     let dir = match output_dir {
@@ -101,19 +110,24 @@ fn thumb_blocking(
             _ => Path::new(".").to_path_buf(),
         },
     };
-    let mut out_path = dir.join(format!("{}-thumb.jpg", stem));
+    // 输出格式:jpg/jpeg → jpg,其余(含 png/空)一律 png
+    let ext = match format {
+        Some(f) if f.eq_ignore_ascii_case("jpg") || f.eq_ignore_ascii_case("jpeg") => "jpg",
+        _ => "png",
+    };
+    let mut out_path = dir.join(format!("{}-thumb.{}", stem, ext));
     let mut n = 1;
     while out_path.exists() {
         if n > 9999 {
             return Err("同名缩略图太多,无法生成不重名的输出文件".to_string());
         }
-        out_path = dir.join(format!("{}-thumb ({}).jpg", stem, n));
+        out_path = dir.join(format!("{}-thumb ({}).{}", stem, n, ext));
         n += 1;
     }
 
     /* ---------- 5. 执行 ffmpeg(fps 均匀取帧 → 缩放 → 拼图) ---------- */
     let ffmpeg = ffbin::resource_binary(app, "ffmpeg")?;
-    let vf = format!("fps=1/{:.6},scale=240:-1,tile={}x{}", interval, cols, rows);
+    let vf = format!("fps=1/{:.6},scale=320:-1,tile={}x{}", interval, cols, rows);
     let cmd_out = ffbin::prepare(Command::new(&ffmpeg))
         .arg("-i")
         .arg(input)
@@ -154,6 +168,20 @@ fn layout_for(count: u32) -> (u32, u32) {
             (cols, rows)
         }
     }
+}
+
+/// 判断视频是否为竖屏(高 > 宽);取不到宽高时按横屏处理。
+fn video_is_vertical(parsed: &serde_json::Value) -> bool {
+    parsed["streams"]
+        .as_array()
+        .and_then(|arr| arr.iter().find(|s| s["codec_type"].as_str() == Some("video")))
+        .and_then(|s| {
+            let w = s["width"].as_i64()?;
+            let h = s["height"].as_i64()?;
+            Some((w, h))
+        })
+        .map(|(w, h)| h > w)
+        .unwrap_or(false)
 }
 
 /// 从 ffmpeg 的 stderr 中提取最有用的错误信息(通常在末尾)

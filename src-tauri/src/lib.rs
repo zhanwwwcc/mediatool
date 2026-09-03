@@ -5,6 +5,9 @@ mod ffbin;
 mod media;
 mod thumb;
 
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use tauri_plugin_dialog::DialogExt;
 
 /// 打开系统文件选择器(支持多选),返回所选文件的绝对路径列表。
@@ -69,6 +72,33 @@ async fn open_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     }
 }
 
+/// 在系统文件管理器中打开指定路径(文件则打开其所在文件夹,目录则直接打开)。
+/// 同步命令:spawn 系统命令后立即返回,不阻塞界面。
+#[tauri::command]
+fn open_in_folder(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    let target: PathBuf = if p.is_dir() {
+        p.to_path_buf()
+    } else {
+        p.parent()
+            .map(|d| d.to_path_buf())
+            .filter(|d| !d.as_os_str().is_empty())
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = Command::new("explorer");
+    #[cfg(target_os = "linux")]
+    let mut cmd = Command::new("xdg-open");
+
+    cmd.arg(&target)
+        .spawn()
+        .map_err(|e| format!("打开文件夹失败:{}", e))?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -76,6 +106,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_files,
             open_folder,
+            open_in_folder,
             media::probe_media,
             crop::crop_media,
             thumb::make_thumbnail

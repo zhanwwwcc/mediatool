@@ -148,6 +148,7 @@ async function openFile(path) {
         <div class="form-actions">
           <button type="button" class="crop-btn">裁剪</button>
           <span class="crop-status"></span>
+          <button type="button" class="open-dir-btn" hidden>打开文件夹</button>
         </div>
       </div>
       <div class="thumb-area" hidden>
@@ -170,9 +171,18 @@ async function openFile(path) {
           <input type="text" id="thumb-dir-${tab.id}" class="thumb-dir" placeholder="留空 = 源文件所在目录" readonly>
           <button type="button" class="dir-btn" data-target="thumb-dir-${tab.id}">选择…</button>
         </div>
+        <div class="form-row">
+          <label>图片格式</label>
+          <div class="fmt-toggle" role="group" aria-label="图片格式">
+            <button type="button" class="fmt-btn active" data-fmt="png">PNG</button>
+            <button type="button" class="fmt-btn" data-fmt="jpg">JPG</button>
+          </div>
+          <span class="inline-hint">默认 PNG,点选切换</span>
+        </div>
         <div class="form-actions">
           <button type="button" class="thumb-btn">生成缩略图</button>
           <span class="thumb-status"></span>
+          <button type="button" class="open-dir-btn" hidden>打开文件夹</button>
         </div>
       </div>`;
     contentEl.appendChild(tab.pageEl);
@@ -186,6 +196,7 @@ async function openFile(path) {
     tab.endEl = tab.pageEl.querySelector('.crop-end');
     tab.nameEl = tab.pageEl.querySelector('.crop-name');
     tab.dirEl = tab.pageEl.querySelector('.crop-dir');
+    tab.cropOpenBtn = tab.pageEl.querySelector('.crop-area .open-dir-btn');
 
     tab.btnEl.addEventListener('click', () => runCrop(tab));
 
@@ -194,6 +205,8 @@ async function openFile(path) {
     tab.thumbBtnEl = tab.pageEl.querySelector('.thumb-btn');
     tab.thumbStatusEl = tab.pageEl.querySelector('.thumb-status');
     tab.thumbDirEl = tab.pageEl.querySelector('.thumb-dir');
+    tab.thumbOpenBtn = tab.pageEl.querySelector('.thumb-area .open-dir-btn');
+    tab.fmt = 'png'; // 默认 PNG
     tab.pageEl.querySelectorAll('.thumb-quick button').forEach((btn) => {
       btn.addEventListener('click', () => {
         tab.thumbCountEl.value = btn.dataset.count;
@@ -201,6 +214,19 @@ async function openFile(path) {
       });
     });
     tab.thumbBtnEl.addEventListener('click', () => runThumbnail(tab));
+
+    // 图片格式切换(PNG / JPG)
+    tab.pageEl.querySelectorAll('.fmt-toggle .fmt-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        tab.pageEl.querySelectorAll('.fmt-toggle .fmt-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        tab.fmt = btn.dataset.fmt;
+      });
+    });
+
+    // 「打开文件夹」按钮:用系统文件管理器打开上次输出文件所在目录
+    tab.cropOpenBtn.addEventListener('click', () => openOutputDir(tab.cropLastOutput));
+    tab.thumbOpenBtn.addEventListener('click', () => openOutputDir(tab.thumbLastOutput));
 
     // 输出文件夹「选择…」按钮:两个板块共用,按 data-target 找目标输入框
     tab.pageEl.querySelectorAll('.dir-btn').forEach((btn) => {
@@ -252,17 +278,23 @@ function activateTab(id) {
     filepathEl.title = active.path;
     filepathEl.hidden = false;
     panelBarEl.hidden = false;
-    syncPanelButtons(active);
+    applyPanelState(active);
   } else {
     filepathEl.hidden = true;
     panelBarEl.hidden = true;
   }
 }
 
-/** 让底部两个按钮的高亮状态与当前标签页的面板开合一致 */
-function syncPanelButtons(tab) {
-  cropPanelBtn.classList.toggle('active', tab && !tab.cropAreaEl.hidden);
-  thumbPanelBtn.classList.toggle('active', tab && !tab.thumbAreaEl.hidden);
+// 功能面板展开状态(全局,切换/新开标签时保持不消失)
+let cropPanelOpen = false;
+let thumbPanelOpen = false;
+
+/** 把全局的展开状态应用到指定标签页,并同步按钮高亮 */
+function applyPanelState(tab) {
+  tab.cropAreaEl.hidden = !cropPanelOpen;
+  tab.thumbAreaEl.hidden = !thumbPanelOpen;
+  cropPanelBtn.classList.toggle('active', cropPanelOpen);
+  thumbPanelBtn.classList.toggle('active', thumbPanelOpen);
 }
 
 /** 当前激活标签页 */
@@ -273,20 +305,20 @@ function activeTab() {
   return null;
 }
 
-/* ---------- 底部功能按钮:展开/收起裁剪、缩略图面板 ---------- */
+/* ---------- 底部功能按钮:展开/收起裁剪、缩略图面板(状态全局保持) ---------- */
 
 cropPanelBtn.addEventListener('click', () => {
   const tab = activeTab();
   if (!tab) return;
-  tab.cropAreaEl.hidden = !tab.cropAreaEl.hidden;
-  syncPanelButtons(tab);
+  cropPanelOpen = !cropPanelOpen;
+  applyPanelState(tab);
 });
 
 thumbPanelBtn.addEventListener('click', () => {
   const tab = activeTab();
   if (!tab) return;
-  tab.thumbAreaEl.hidden = !tab.thumbAreaEl.hidden;
-  syncPanelButtons(tab);
+  thumbPanelOpen = !thumbPanelOpen;
+  applyPanelState(tab);
 });
 
 /** 关闭标签页 */
@@ -369,6 +401,8 @@ async function runCrop(tab) {
       outputDir: tab.dirEl.value.trim() || null,
     });
     setStatus(tab, 'success', `裁剪完成:${result.outputPath}`);
+    tab.cropLastOutput = result.outputPath;
+    tab.cropOpenBtn.hidden = false;
   } catch (err) {
     setStatus(tab, 'error', String(err));
   } finally {
@@ -409,8 +443,11 @@ async function runThumbnail(tab) {
       input: tab.path,
       count,
       outputDir: tab.thumbDirEl.value.trim() || null,
+      format: tab.fmt,
     });
     setThumbStatus(tab, 'success', `缩略图已生成:${result.outputPath}`);
+    tab.thumbLastOutput = result.outputPath;
+    tab.thumbOpenBtn.hidden = false;
   } catch (err) {
     setThumbStatus(tab, 'error', String(err));
   } finally {
@@ -422,6 +459,22 @@ function setThumbStatus(tab, kind, text) {
   // 保留 thumb-status 类,同时挂 crop-status 以便复用成功/失败/等待的颜色
   tab.thumbStatusEl.className = `thumb-status crop-status ${kind}`;
   tab.thumbStatusEl.textContent = text;
+}
+
+/* ---------- 打开输出文件夹 ---------- */
+
+async function openOutputDir(path) {
+  if (!path) return;
+  const invoke = getInvoke();
+  if (!invoke) {
+    alert('Tauri API 未注入,无法打开文件夹');
+    return;
+  }
+  try {
+    await invoke('open_in_folder', { path });
+  } catch (err) {
+    alert('打开文件夹失败:' + err);
+  }
 }
 
 /* ---------- 打开文件(按钮 + 拖拽) ---------- */
