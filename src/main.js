@@ -124,17 +124,9 @@ async function openFile(path) {
       <div class="info-area"><div class="info-loading">正在读取媒体信息…</div></div>
       <div class="crop-area" hidden>
         <h2>快速裁剪(流复制,不重编码)</h2>
-        <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始、终止均可留空(默认从开头裁剪到文件结尾)</div>
-        <div class="form-row">
-          <label for="start-${tab.id}">起始时间</label>
-          <input type="text" id="start-${tab.id}" class="crop-start" placeholder="00:00:00(可留空)">
-          <span class="inline-hint">默认从文件开头</span>
-        </div>
-        <div class="form-row">
-          <label for="end-${tab.id}">终止时间</label>
-          <input type="text" id="end-${tab.id}" class="crop-end" placeholder="00:00:00(可留空)">
-          <span class="inline-hint">默认到文件结尾</span>
-        </div>
+        <div class="crop-hint">时间格式支持 时:分:秒(如 1:23:45)、分:秒(如 5:30)或纯秒数(如 90);起始、终止均可留空(默认从开头裁剪到文件结尾)。点「＋ 添加片段」可裁剪多段并按顺序合并成一个文件</div>
+        <div class="segments"></div>
+        <button type="button" class="add-seg-btn">＋ 添加片段</button>
         <div class="form-row">
           <label for="name-${tab.id}">输出文件名</label>
           <input type="text" id="name-${tab.id}" class="crop-name" placeholder="留空自动:原名-cut">
@@ -192,13 +184,17 @@ async function openFile(path) {
     tab.thumbAreaEl = tab.pageEl.querySelector('.thumb-area');
     tab.statusEl = tab.pageEl.querySelector('.crop-status');
     tab.btnEl = tab.pageEl.querySelector('.crop-btn');
-    tab.startEl = tab.pageEl.querySelector('.crop-start');
-    tab.endEl = tab.pageEl.querySelector('.crop-end');
+    tab.segmentsEl = tab.pageEl.querySelector('.segments');
+    tab.addSegBtn = tab.pageEl.querySelector('.add-seg-btn');
     tab.nameEl = tab.pageEl.querySelector('.crop-name');
     tab.dirEl = tab.pageEl.querySelector('.crop-dir');
     tab.cropOpenBtn = tab.pageEl.querySelector('.crop-area .open-dir-btn');
 
     tab.btnEl.addEventListener('click', () => runCrop(tab));
+
+    // 裁剪片段:初始 1 个,加号可追加,每个片段可单独删除
+    addSegment(tab);
+    tab.addSegBtn.addEventListener('click', () => addSegment(tab));
 
     // 缩略图区:快捷数量按钮、输入框、生成按钮
     tab.thumbCountEl = tab.pageEl.querySelector('.thumb-count');
@@ -356,22 +352,64 @@ function renderInfo(tab, sections) {
 
 /* ---------- 裁剪 ---------- */
 
-async function runCrop(tab) {
-  // 1. 解析并校验时间输入(前端先挡一道,Rust 端还会再校验)
-  const start = parseTime(tab.startEl.value);
-  const end = parseTime(tab.endEl.value);
+/** 新增一个裁剪片段(起始/终止输入框) */
+function addSegment(tab) {
+  const seg = document.createElement('div');
+  seg.className = 'segment';
+  seg.innerHTML = `
+    <div class="seg-head">
+      <span class="seg-title">片段 1</span>
+      <button type="button" class="seg-del" title="删除此片段">×</button>
+    </div>
+    <div class="form-row">
+      <label>起始时间</label>
+      <input type="text" class="seg-start" placeholder="00:00:00(可留空)">
+    </div>
+    <div class="form-row">
+      <label>终止时间</label>
+      <input type="text" class="seg-end" placeholder="00:00:00(可留空)">
+    </div>`;
+  seg.querySelector('.seg-del').addEventListener('click', () => {
+    seg.remove();
+    refreshSegmentLabels(tab);
+  });
+  tab.segmentsEl.appendChild(seg);
+  refreshSegmentLabels(tab);
+}
 
-  if (isNaN(start) || (start !== null && start < 0)) {
-    setStatus(tab, 'error', '起始时间格式不对:支持 时:分:秒(1:23:45)、分:秒(5:30)或纯秒数(90)');
-    return;
-  }
-  if (end !== null && (isNaN(end) || end <= 0)) {
-    setStatus(tab, 'error', '终止时间需大于 0(留空表示裁剪到文件结尾)');
-    return;
-  }
-  if (start !== null && end !== null && start >= end) {
-    setStatus(tab, 'error', '起始时间必须早于终止时间');
-    return;
+/** 重新编号片段,并控制删除按钮的显隐(仅剩 1 个时不可删) */
+function refreshSegmentLabels(tab) {
+  const segs = tab.segmentsEl.querySelectorAll('.segment');
+  segs.forEach((seg, i) => {
+    seg.querySelector('.seg-title').textContent = `片段 ${i + 1}`;
+    seg.querySelector('.seg-del').style.display = segs.length > 1 ? '' : 'none';
+  });
+}
+
+async function runCrop(tab) {
+  // 1. 收集并校验所有片段(前端先挡一道,Rust 端还会再校验)
+  const segEls = tab.segmentsEl.querySelectorAll('.segment');
+  const segments = [];
+  for (let i = 0; i < segEls.length; i++) {
+    const start = parseTime(segEls[i].querySelector('.seg-start').value);
+    const end = parseTime(segEls[i].querySelector('.seg-end').value);
+    if (start === null && end === null) {
+      setStatus(tab, 'error', `片段 ${i + 1} 的起始和终止时间不能同时为空`);
+      return;
+    }
+    if (isNaN(start) || (start !== null && start < 0)) {
+      setStatus(tab, 'error', `片段 ${i + 1} 起始时间格式不对:支持 时:分:秒(1:23:45)、分:秒(5:30)或纯秒数(90)`);
+      return;
+    }
+    if (end !== null && (isNaN(end) || end <= 0)) {
+      setStatus(tab, 'error', `片段 ${i + 1} 终止时间需大于 0(留空表示裁剪到文件结尾)`);
+      return;
+    }
+    if (start !== null && end !== null && start >= end) {
+      setStatus(tab, 'error', `片段 ${i + 1} 起始时间必须早于终止时间`);
+      return;
+    }
+    segments.push({ start: start, end: end });
   }
 
   // 2. 输出文件名(不含扩展名,扩展名由 Rust 端沿用源文件;留空自动用「原名-cut」)
@@ -391,12 +429,11 @@ async function runCrop(tab) {
     return;
   }
   tab.btnEl.disabled = true;
-  setStatus(tab, 'pending', '正在裁剪(流复制,通常几秒完成)…');
+  setStatus(tab, 'pending', `正在裁剪(${segments.length} 个片段,流复制)…`);
   try {
     const result = await invoke('crop_media', {
       input: tab.path,
-      start: start,
-      end: end,
+      segments: segments,
       outputName: outName,
       outputDir: tab.dirEl.value.trim() || null,
     });

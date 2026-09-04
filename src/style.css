@@ -503,3 +503,51 @@ body.dragging::after {
   color: #fff;
 }
 .fmt-btn:active { transform: translateY(1px); }
+
+/* ---------- 裁剪片段(多片段合并) ---------- */
+
+.segment {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 4px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+
+.seg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.seg-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+
+.seg-del {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.seg-del:hover { color: var(--error); background: rgba(0, 0, 0, 0.05); }
+
+.add-seg-btn {
+  margin-bottom: 12px;
+  padding: 5px 14px;
+  font-size: 13px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.add-seg-btn:hover { background: rgba(47, 111, 237, 0.06); }
+.add-seg-btn:active { transform: translateY(1px); }
