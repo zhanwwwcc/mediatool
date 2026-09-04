@@ -36,14 +36,16 @@ jobs:
             echo "git tag ${TAG} 已创建"
           fi
           # 2) 创建(或复用)Release 并输出 id
-          RID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id' 2>/dev/null || true)
-          if [ -z "$RID" ]; then
+          # 注意:必须用退出码判断。gh api 对 404 会把错误 JSON 打到 stdout,
+          # 若用 `RID=$(... || true)` 会把错误 JSON 当成"已存在"而跳过创建(曾导致 v1.2.1/v1.2.2 未建出 Release)
+          if gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id' >/dev/null 2>&1; then
+            RID=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" --jq '.id')
+            echo "Release ${TAG} 已存在,复用(id=${RID})"
+          else
             RID=$(gh api "repos/${{ github.repository }}/releases" --method POST \
               -f "tag_name=${TAG}" -f "name=媒体工具 ${TAG}" -f "body=${BODY}" \
               --jq '.id')
             echo "Release ${TAG} 已创建(id=${RID})"
-          else
-            echo "Release ${TAG} 已存在,复用(id=${RID})"
           fi
           echo "release_id=${RID}" >> "$GITHUB_OUTPUT"
 
